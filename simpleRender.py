@@ -5,7 +5,7 @@ import html
 
 from flask import request
 
-langDesc = { 'et': 'eesti', 'lv': 'läti', 'lt': 'leedu', 'ru_ru': 'vene' }
+langDesc = { 'et': 'eesti', 'lv': 'läti', 'lt': 'leedu', 'ru_ru': 'vene', 'ru': 'vene' }
 
 def _sanitize(inputString):
 	if inputString:
@@ -32,22 +32,40 @@ def _memsourceFiles(sessionId):
 	user = session.getUser(sessionId)
 	token = session.getToken(sessionId)
 	
-	projects = memsource.getProjects(token)
+	tmpFilter = session.retrieveValue(sessionId, 'tmpflt')
+	if tmpFilter == None:
+		tmpFilter = ''
+	#print("filter", tmpFilter)
 	
-	res += """<form action="/?s={0}" method="post">""".format(sessionId)
+	projects = memsource.getProjects(token, name = tmpFilter)
+	
+	res += """<p><form id="fltform" action="/?s={0}" method="post"><input type="hidden" name="reqtyp" value="filter"/><input type="text" id="tmpFilter" name="tmpFilter" value="{1}" size="100" placeholder="filtreeri projekti nime j&auml;rgi"/><input type="submit" value="Filtreeri" name="filterButton"/></form></p>""".format(sessionId, tmpFilter if tmpFilter else "")
+	
+	#res += """
+	#<script>
+	#document.getElementById("tmpFilter").addEventListener("input", myFunction);
+	#
+	#function myFunction() {
+	#  var x = document.getElementById("fltform");
+	#  x.submit();
+	#		 }
+	#	 </script>
+	#"""
+	
+	res += """<form action="/?s={0}" method="post"><input type="hidden" name="reqtyp" value="translate"/>""".format(sessionId)
 	
 	res += """<table border="0" width="800px">"""
 	
 	for p in projects['content']:
 		#res += "<p style=\"text-align:left;width:800px\"><b>Projekt: " + p['name'] + "</b></p>"
-		print("PROJ LOG", p)
+		#print("PROJ LOG", p)
 		
 		#if owner == 'InterlexPM':
 		if True:
 			fl = memsource.getProjJobs(token, p['uid'])
 			
 			for f in fl['content']:
-				print("JOB LOG", f)
+				#print("JOB LOG", f)
 				inId = session.internalFileId(sessionId, p['uid'], f['uid'], [f, p])
 				
 				if not session.getFileBySKey(sessionId, inId)['mt']:

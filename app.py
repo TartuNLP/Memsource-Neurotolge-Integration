@@ -56,6 +56,14 @@ def _maybeStartTranslation(sessionId):
 				inid = int(k[2:])
 				neurotolge.translateFileOnBg(sessionId, inid)
 
+def _maybeStoreFilter(sessionId):
+	#print("maybe")
+	if sessionId and 'reqtyp' in request.form and request.form['reqtyp'] == 'filter':
+		tmpFilter = request.form['tmpFilter']
+		
+		#print("yes", tmpFilter)
+		session.storeValue(sessionId, 'tmpflt', tmpFilter)
+
 @app.route('/', methods=['POST', 'GET'])
 def appRoot():
 	sessionId = _tryLoginOrRetrieveSession()
@@ -63,6 +71,8 @@ def appRoot():
 	sessionId = _maybeLogout(sessionId)
 	
 	_maybeStartTranslation(sessionId)
+	
+	_maybeStoreFilter(sessionId)
 	
 	if sessionId:
 		return render.filelist(sessionId)

@@ -3,7 +3,7 @@ import json
 
 baseurl = 'https://cloud.memsource.com/web/api2/v1/'
 
-def memsrc(shorturl, data = None, jdata = None, log = True, get = False, put = False, skipjson = False):
+def memsrc(shorturl, data = None, jdata = None, log = False, get = False, put = False, skipjson = False):
     url = baseurl + shorturl
     
     f = requests.get if get else requests.put if put else requests.post

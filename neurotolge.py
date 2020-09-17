@@ -1,6 +1,5 @@
 import memsource
 import session
-import json
 import html
 import requests
 import xml.dom.minidom as dom
@@ -45,7 +44,7 @@ def _batches(data, size):
 	if end > start:
 		yield data[start:end]
 
-def _translateBatches(inputs, outLang, user, fileId, batchSize = 16):
+def _translateBatches(inputs, outLang, user, fileId, batchSize = 1):
 	inputList = list(inputs)
 	translations = []
 	
@@ -59,17 +58,18 @@ def _translateBatches(inputs, outLang, user, fileId, batchSize = 16):
 def _translate(inputSet, outLang):
 	inputs = list(inputSet)
 	
-	text = "|".join(inputs)
+	#text = "|".join(inputs)
+	text = inputs
 	
 	assert (outLang in ('et', 'lv', 'lt'))
 	
 	print("\ntranslating", outLang, text, datetime.now())
-	rawRes = requests.post("https://api.neurotolge.ee/v1.1/translate", data = {'auth': 'affinephoneearsinterlex', 'conf': outLang, 'src': text })
+	rawRes = requests.post("http://api.tartunlp.ai/v1.2/translate?auth={0}&olang={1}".format('public', outLang), json = { 'text': text })
 	print("translated:", rawRes.text, datetime.now())
 	
-	jsonRes = json.loads(rawRes.text)
+	#jsonRes = json.loads(rawRes.text)
 	
-	translations = jsonRes['tgt'].split("|")
+	translations = rawRes.json()['result']
 	
 	#return dict(zip(inputs, translations))
 	return translations
@@ -88,7 +88,7 @@ def _fillTranslations(oldContent, trDict, userId):
 			assert(len(tgtNodesX) == 1)
 			
 			if not tgtNodesX[0].hasChildNodes():
-				print("ADDED ALT")
+				#print("ADDED ALT")
 				tgtNodesX[0].appendChild(doc.createTextNode(transl))
 			
 			tgtNodes = [t for t in tu.childNodes if t.localName == 'target']
@@ -134,14 +134,16 @@ def translateXml(user, fileId):
 	
 	d2 = datetime.now()
 	trDict = _translateBatches(inputSet, outLang, user, fileId)
+	print("DEBUGGGGGX", trDict)
 	
 	d3 = datetime.now()
 	newContent = _fillTranslations(content, trDict, session.bgfiles[user][fileId]['msInfo'][1]['owner']['id'])
+	print("DEBUGGGGG", newContent)
 	
 	d4 = datetime.now()
 	
 	r = memsource.putFileContent(token, newContent)
-	print("DONE, {0} / {1} / {2}".format(len(trDict), d3 - d2, r))
+	print("DONE, {0} / {1}".format(len(trDict), d3 - d2))
 	#print(newContent)
 	
 	session.bgfiles[user][fileId]['done'] = True

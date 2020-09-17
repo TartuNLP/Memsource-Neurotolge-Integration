@@ -18,8 +18,19 @@ def new(msToken, username, password):
 	newSessionId = genNewSessionId()
 	
 	sessions[newSessionId] = man.dict({ 'token': msToken, 'username': username, 'password': password })
-	print(len(sessions))
+	#print(len(sessions))
 	return newSessionId
+
+def storeValue(sessionId, key, value):
+	sessions[sessionId][key] = value
+
+def retrieveValue(sessionId, key):
+	try:
+		result = sessions[sessionId][key]
+	except KeyError:
+		result = None
+	
+	return result
 
 def getToken(sessionId):
 	return sessions[sessionId]['token']
