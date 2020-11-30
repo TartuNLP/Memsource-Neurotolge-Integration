@@ -15,7 +15,7 @@ _engines = { 'public': ['public', True],
 		'imaginary': ['no_such_engine', False],
 	}
 
-#lists each user's access to other motors besides 'public'
+#lists each user's access to translation engines
 userExtraEngineAccess = defaultdict( lambda: ['interlex', 'grata', 'public'], {
 	'mphiz': [ 'interlex', 'grata', 'public' ],
 	})
