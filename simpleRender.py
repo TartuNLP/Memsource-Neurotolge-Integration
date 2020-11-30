@@ -2,6 +2,7 @@ import session
 import neurotolge
 import memsource
 import html
+from datetime import datetime
 
 from flask import request
 
@@ -22,9 +23,45 @@ def _end():
 def _logoutPara(sessionId):
 	return """<p><a href="/?s=-{0}">Logi välja</a></p>""".format(sessionId)
 
-def _filelistHeader():
-	return """<h1>Interlex'i masintõlge</h1>
-	<p style="width:800px;text-align:left">Siin saab käivitada masintõlget valitud tööde jaoks. Pärast masintõlkimise lõpetamist saavad failid tagasi MemSource'i üles laetud, kusjuures tühjad väljundiväljad saavad masintõlke väljundiga eeltäidetud.</p>"""
+def _beautifulEngineName(engineName):
+	if engineName == 'tt':
+		return 'TT'
+	else:
+		return engineName.capitalize()
+
+def _translationEngineSelect(sessionId):
+	username = session.retrieveValue(sessionId, 'username')
+	
+	selectedEngine = session.retrieveValue(sessionId, 'translator')
+	
+	engines = list(neurotolge.userExtraEngineAccess[username])
+	
+	if len(engines) == 1:
+		return engines[0] + """<input type="hidden" name="translator" value="{0}"/>""".format(engines[0])
+	else:
+		res = """<select name="translator" id="translator" onchange="fltform.submit()">"""
+		
+		for engine in engines:
+			selectedText = " selected=\"y\"" if engine == selectedEngine else ""
+			
+			res += """<option value="{0}"{1}>{2}</option>""".format(engine, selectedText, _beautifulEngineName(engine))
+		
+		res += "</select>"
+		
+		return res
+
+def _filelistHeader(sessionId):
+	return """<h1>MemSource ja Neurot&otilde;lke integratsioon</h1>
+		<p style="width:800px;text-align:left">Siin
+		saab käivitada masintõlget valitud tööde jaoks.
+		Pärast masintõlkimise lõpetamist saavad failid
+		tagasi MemSource'i üles laetud, kusjuures tühjad
+		väljundiväljad saavad masintõlke väljundiga eeltäidetud.</p>
+	
+		<form id="fltform" action="/?s={0}" method="post">
+	
+		<p>T&otilde;lkemootor: {1}</p>
+		""".format(sessionId, _translationEngineSelect(sessionId))
 
 def _memsourceFiles(sessionId):
 	res = "<h2>Memsource projektid/failid</h2>"
@@ -32,31 +69,23 @@ def _memsourceFiles(sessionId):
 	user = session.getUser(sessionId)
 	token = session.getToken(sessionId)
 	
-	tmpFilter = session.retrieveValue(sessionId, 'tmpflt')
-	if tmpFilter == None:
-		tmpFilter = ''
-	#print("filter", tmpFilter)
+	textProjFilter = session.retrieveValue(sessionId, 'textProjFilter') or ""
+	numProjFilter = session.retrieveValue(sessionId, 'numProjFilter') or ""
 	
-	projects = memsource.getProjects(token, name = tmpFilter)
+	res += """<p><input type="hidden" name="reqtyp" value="filter"/>
+		<input type="hidden" name="numProjFilter" value=""/>
+		<input type="text" id="textProjFilter" name="textProjFilter" value="{1}" size="90"
+		   placeholder="filtreeri projekti nime j&auml;rgi"/>
+		<input type="submit" value="Filtreeri" name="filterButton"/>
+		</p></form>""".format(numProjFilter, textProjFilter)
 	
-	res += """<p><form id="fltform" action="/?s={0}" method="post"><input type="hidden" name="reqtyp" value="filter"/><input type="text" id="tmpFilter" name="tmpFilter" value="{1}" size="100" placeholder="filtreeri projekti nime j&auml;rgi"/><input type="submit" value="Filtreeri" name="filterButton"/></form></p>""".format(sessionId, tmpFilter if tmpFilter else "")
-	
-	#res += """
-	#<script>
-	#document.getElementById("tmpFilter").addEventListener("input", myFunction);
-	#
-	#function myFunction() {
-	#  var x = document.getElementById("fltform");
-	#  x.submit();
-	#		 }
-	#	 </script>
-	#"""
+	projects = memsource.getProjects(token, name = textProjFilter, numflt = numProjFilter)
 	
 	res += """<form action="/?s={0}" method="post"><input type="hidden" name="reqtyp" value="translate"/>""".format(sessionId)
 	
 	res += """<table border="0" width="800px">"""
 	
-	for p in projects['content']:
+	for p in sorted(projects['content'], key=lambda x: x['internalId']):
 		#res += "<p style=\"text-align:left;width:800px\"><b>Projekt: " + p['name'] + "</b></p>"
 		#print("PROJ LOG", p)
 		
@@ -107,7 +136,7 @@ def _finalButtons(sessionId):
 def filelist(sessionId):
 	res = _start()
 	
-	res += _filelistHeader()
+	res += _filelistHeader(sessionId)
 	
 	res += _memsourceFiles(sessionId)
 	

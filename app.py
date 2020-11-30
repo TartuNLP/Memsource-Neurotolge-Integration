@@ -9,6 +9,90 @@ from flask import Flask, request
 
 app = Flask('MemSourceMT')
 
+###################################
+######## Handling requests ########
+###################################
+
+@app.route('/', methods=['POST', 'GET'])
+def appRoot():
+	sessionId = _tryLoginOrRetrieveSession()
+	
+	sessionId = _maybeLogout(sessionId)
+	
+	_maybeStartTranslation(sessionId)
+	
+	_maybeStoreParams(sessionId)
+	
+	if sessionId:
+		return render.filelist(sessionId)
+	else:
+		try:
+			return render.loginForm()
+		except Exception as e:
+			print(e)
+			return "ERR"
+
+#@app.route('/list', methods=['POST'])
+#def appListProj():
+#	sessionId = int(request.args.get('s'))
+#	name = request.args.get('n')
+#	lang = request.args.get('l')
+#	
+#	try:
+#		uid = int(request.args.get('i'))
+#	except:
+#		uid = None
+#	
+#	token = session.getToken(sessionId)
+#	
+#	if uid:
+#		rawres = [ memsource.getProjectById(token, uid) ]
+#	else:
+#		rawRes = memsource.getProjects(token, name = name, targetLang = lang)
+#	
+#	#TODO put list in session
+#	
+#	#return list
+#	
+#@app.route('/prfiles', methods=['POST'])
+#def appProjFiles():
+#	sessionId = int(request.args.get('s'))
+#	projInId = int(request.args.get('p'))
+#	
+#	projId = session.getProjId(sessionId, projInId)
+#	token = session.getToken(sessionId)
+#	
+#	fileList = memsource.getProjJobs(token, projId)
+#	
+#	#TODO put list in session
+#	
+#	#return list
+
+@app.route('/viewfile', methods=['GET', 'POST'])
+def appViewFile():
+	sessionId = int(request.args.get('s'))
+	fileKey = int(request.args.get('fk'))
+	
+	fille = session.getFileByKey(session.getUser(sessionId), fileKey)
+	
+	token = fille['token']
+	puid = fille['puid']
+	fuid = fille['fuid']
+	
+	return render.showFile(token, puid, fuid)
+
+#@app.route('/translatefile', methods=['GET', 'POST'])
+#def appTranslateFile():
+#	sessionId = int(request.args.get('s'))
+#	projUid = request.args.get('puid')
+#	fileUid = request.args.get('fuid')
+#	res = neurotolge.translateXml(sessionId, projUid, fileUid)
+#	return res
+
+###################################
+######## Helper functions #########
+###################################
+
 def _login():
 	username = request.form['username']
 	password = request.form['password']
@@ -16,6 +100,11 @@ def _login():
 	try:
 		token = memsource.login(username, password)
 		sessId = session.new(token, username, password)
+		
+		
+		engines = list(neurotolge.userExtraEngineAccess[username])
+		session.storeValue(sessId, 'translator', engines[0])
+		
 		return sessId
 		
 	except Exception as e:
@@ -42,6 +131,7 @@ def _tryLoginOrRetrieveSession():
 	return sessionId
 
 def _maybeLogout(sessionId):
+	#logout request is signalled by passing the session ID multiplied by -1
 	if sessionId is not None and sessionId < 0:
 		memsource.logout(session.getToken(-sessionId))
 		
@@ -56,89 +146,15 @@ def _maybeStartTranslation(sessionId):
 				inid = int(k[2:])
 				neurotolge.translateFileOnBg(sessionId, inid)
 
-def _maybeStoreFilter(sessionId):
-	#print("maybe")
+def _maybeStoreParams(sessionId):
 	if sessionId and 'reqtyp' in request.form and request.form['reqtyp'] == 'filter':
-		tmpFilter = request.form['tmpFilter']
-		
-		#print("yes", tmpFilter)
-		session.storeValue(sessionId, 'tmpflt', tmpFilter)
+		for k, v in request.form.items():
+			if k not in { 'reqtyp', 'filterButton' }:
+				session.storeValue(sessionId, k, v)
 
-@app.route('/', methods=['POST', 'GET'])
-def appRoot():
-	sessionId = _tryLoginOrRetrieveSession()
-	
-	sessionId = _maybeLogout(sessionId)
-	
-	_maybeStartTranslation(sessionId)
-	
-	_maybeStoreFilter(sessionId)
-	
-	if sessionId:
-		return render.filelist(sessionId)
-	else:
-		try:
-			return render.loginForm()
-		except Exception as e:
-			print(e)
-			return "ERR"
-
-@app.route('/list', methods=['POST'])
-def appListProj():
-	sessionId = int(request.args.get('s'))
-	name = request.args.get('n')
-	lang = request.args.get('l')
-	
-	try:
-		uid = int(request.args.get('i'))
-	except:
-		uid = None
-	
-	token = session.getToken(sessionId)
-	
-	if uid:
-		rawres = [ memsource.getProjectById(token, uid) ]
-	else:
-		rawRes = memsource.getProjects(token, name = name, targetLang = lang)
-	
-	#TODO put list in session
-	
-	#return list
-	
-@app.route('/prfiles', methods=['POST'])
-def appProjFiles():
-	sessionId = int(request.args.get('s'))
-	projInId = int(request.args.get('p'))
-	
-	projId = session.getProjId(sessionId, projInId)
-	token = session.getToken(sessionId)
-	
-	fileList = memsource.getProjJobs(token, projId)
-	
-	#TODO put list in session
-	
-	#return list
-
-@app.route('/viewfile', methods=['GET', 'POST'])
-def appViewFile():
-	sessionId = int(request.args.get('s'))
-	fileKey = int(request.args.get('fk'))
-	
-	fille = session.getFileByKey(session.getUser(sessionId), fileKey)
-	
-	token = fille['token']
-	puid = fille['puid']
-	fuid = fille['fuid']
-	
-	return render.showFile(token, puid, fuid)
-
-@app.route('/translatefile', methods=['GET', 'POST'])
-def appTranslateFile():
-	sessionId = int(request.args.get('s'))
-	projUid = request.args.get('puid')
-	fileUid = request.args.get('fuid')
-	res = neurotolge.translateXml(sessionId, projUid, fileUid)
-	return res
+###################################
+########### Start app #############
+###################################
 
 if __name__ == '__main__':
 	app.run(port=80, host='193.40.154.224')

@@ -1,4 +1,5 @@
 import memsource
+import re
 import session
 import html
 import requests
@@ -7,6 +8,17 @@ import multiprocessing as mp
 
 from urllib.parse import quote
 from datetime import datetime
+from collections import defaultdict
+
+# ID: [ 'auth', isOldAPI ]
+_engines = { 'public': ['public', True],
+		'imaginary': ['no_such_engine', False],
+	}
+
+#lists each user's access to other motors besides 'public'
+userExtraEngineAccess = defaultdict( lambda: ['interlex', 'grata', 'public'], {
+	'mphiz': [ 'interlex', 'grata', 'public' ],
+	})
 
 def _elem2txt(elem):
 	return html.unescape(elem.toxml())[8:-9]
@@ -44,32 +56,50 @@ def _batches(data, size):
 	if end > start:
 		yield data[start:end]
 
-def _translateBatches(inputs, outLang, user, fileId, batchSize = 1):
+def _translateBatches(translatorEngine, inputs, outLang, user, fileId, batchSize = 8):
 	inputList = list(inputs)
 	translations = []
 	
 	for b in _batches(inputList, batchSize):
-		bt = _translate(b, outLang)
+		bt = _translate(translatorEngine, b, outLang)
 		translations += bt
 		session.bgfiles[user][fileId]['numDone'] = len(translations)
 	
 	return dict(zip(inputList, translations))
 
-def _translate(inputSet, outLang):
+def _fixTags(translation):
+	# fix broken tags: replace '{2 > silte < 2}' with '{2>silte<2}'
+	tmpRes = re.sub(r'{\s*([0-9biu])\s*>\s*', r'{\1>', translation)
+	res = re.sub(r'\s*<\s*([0-9biu])\s*}', r'<\1}', tmpRes)
+	return res
+
+def _fixTagsList(translList):
+	#print("AAAADdEBUG", translList)
+	
+	return [_fixTags(x) for x in translList]
+
+def _translate(translatorEngine, inputSet, outLang):
 	inputs = list(inputSet)
 	
 	#text = "|".join(inputs)
 	text = inputs
 	
-	assert (outLang in ('et', 'lv', 'lt'))
+	assert (outLang in ('et', 'lv', 'lt', 'de', 'en', 'fi', 'ru'))
 	
-	print("\ntranslating", outLang, text, datetime.now())
-	rawRes = requests.post("http://api.tartunlp.ai/v1.2/translate?auth={0}&olang={1}".format('public', outLang), json = { 'text': text })
-	print("translated:", rawRes.text, datetime.now())
+	authToken, useOldAPI = _engines[translatorEngine]
 	
-	#jsonRes = json.loads(rawRes.text)
+	print("\ntranslating", translatorEngine, outLang, text, datetime.now())
 	
-	translations = rawRes.json()['result']
+	if useOldAPI:
+		rawResponse = requests.post("https://api.neurotolge.ee/v1.1/translate?auth={0}&conf={1}&src={2}".format(authToken, outLang, "|".join(inputs)))
+		rawResult = rawResponse.json()['tgt'].split("|")
+	else:
+		rawResponse = requests.post("https://api.tartunlp.ai/v1.2/translate?auth={0}&olang={1}".format(authToken, outLang), json = { 'text': text })
+		rawResult = rawResponse.json()['result']
+	
+	print("translated:", translatorEngine, rawResponse.text, datetime.now())
+	
+	translations = _fixTagsList(rawResult)
 	
 	#return dict(zip(inputs, translations))
 	return translations
@@ -111,12 +141,16 @@ def translateFileOnBg(sessionId, fileId):
 	
 	f['mt'] = True
 	user = session.getUser(sessionId)
+	translator = session.retrieveValue(sessionId, 'translator')
 	
-	p = mp.Process(target=translateXml, args=[user, fileId])
+	#this should be impossible to do, but for extra security:
+	if not translator in set(userExtraEngineAccess[user]):
+		raise Exception("AAA, what do we do: " + str(translator) + ", " + str(userExtraEngineAccess[user]) + ".")
+	
+	p = mp.Process(target=translateXml, args=[user, translator, fileId])
 	p.start()
 	
-#def translateXml(sessionId, puid, fuid):
-def translateXml(user, fileId):	
+def translateXml(user, translatorEngine, fileId):	
 	fileInfo = session.getFileByKey(user, fileId)
 	
 	token = fileInfo['token']
@@ -133,12 +167,12 @@ def translateXml(user, fileId):
 	session.bgfiles[user][fileId]['numDone'] = 0
 	
 	d2 = datetime.now()
-	trDict = _translateBatches(inputSet, outLang, user, fileId)
-	print("DEBUGGGGGX", trDict)
+	trDict = _translateBatches(translatorEngine, inputSet, outLang, user, fileId)
+	#print("DEBUGGGGGX", trDict)
 	
 	d3 = datetime.now()
 	newContent = _fillTranslations(content, trDict, session.bgfiles[user][fileId]['msInfo'][1]['owner']['id'])
-	print("DEBUGGGGG", newContent)
+	#print("DEBUGGGGG", newContent)
 	
 	d4 = datetime.now()
 	
