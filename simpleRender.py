@@ -1,12 +1,15 @@
 import session
 import neurotolge
+import enginespecs
 import memsource
 import html
 from datetime import datetime
 
 from flask import request
 
-langDesc = { 'et': 'eesti', 'lv': 'läti', 'lt': 'leedu', 'ru_ru': 'vene', 'ru': 'vene' }
+langDesc = { 'et': 'eesti', 'lv': 'läti', 'lt': 'leedu', 'ru_ru': 'vene', 'ru': 'vene', 'de': 'saksa', 'fi': 'soome', 'en': 'inglise' }
+
+shortenLang = { 'est': 'et', 'eng': 'en', 'lit': 'lt', 'lav': 'lv', 'rus': 'ru', 'ger': 'de', 'deu': 'de', 'fin': 'fi' }
 
 def _sanitize(inputString):
 	if inputString:
@@ -34,7 +37,7 @@ def _translationEngineSelect(sessionId):
 	
 	selectedEngine = session.retrieveValue(sessionId, 'translator')
 	
-	engines = list(neurotolge.userExtraEngineAccess[username])
+	engines = list(enginespecs.userExtraEngineAccess[username])
 	
 	if len(engines) == 1:
 		return engines[0] + """<input type="hidden" name="translator" value="{0}"/>""".format(engines[0])
@@ -50,6 +53,28 @@ def _translationEngineSelect(sessionId):
 		
 		return res
 
+def _maybeRenderDomainSelect(sessionId):
+	selectedEngine = session.retrieveValue(sessionId, 'translator')
+	
+	selectedDomain = session.retrieveValue(sessionId, 'domain')
+	spec = session.retrieveValue(sessionId, 'engineSpec')
+	availDomains = spec['domains'] if spec and 'domains' in spec else None
+	
+	if availDomains and selectedDomain:
+		res = """<p>Tekstivaldkond: <select name="domain" id="domain" onchange="fltform.submit()">"""
+		
+		for dom in availDomains:
+			domCode = dom['code']
+			domName = dom['name']
+			selTxt = " selected=\"y\"" if domCode == selectedDomain else ""
+			
+			res += """<option value="{0}"{1}>{2}</option>""".format(domCode, selTxt, domName)
+			
+		res += "</select></p>"
+		return res
+	else:
+		return ""
+
 def _filelistHeader(sessionId):
 	return """<h1>MemSource ja Neurot&otilde;lke integratsioon</h1>
 		<p style="width:800px;text-align:left">Siin
@@ -61,7 +86,21 @@ def _filelistHeader(sessionId):
 		<form id="fltform" action="/?s={0}" method="post">
 	
 		<p>T&otilde;lkemootor: {1}</p>
-		""".format(sessionId, _translationEngineSelect(sessionId))
+		{2}
+		""".format(sessionId, _translationEngineSelect(sessionId), _maybeRenderDomainSelect(sessionId))
+
+def getDomLangs(engineSpec, domain):
+	if not engineSpec or not domain:
+		return None, None
+	
+	dommap = { dom['code']: dom for dom in engineSpec['domains'] }
+	
+	srcTgtLangsRaw = zip(*[lp.split('-') for lp in dommap[domain]['languages']])
+	
+	return [list(set([shortenLang[l] for l in ldef])) for ldef in srcTgtLangsRaw]
+
+def _langunion(allowed, proj):
+	return list(set(allowed) & set(proj))
 
 def _memsourceFiles(sessionId):
 	res = "<h2>Memsource projektid/failid</h2>"
@@ -72,6 +111,13 @@ def _memsourceFiles(sessionId):
 	textProjFilter = session.retrieveValue(sessionId, 'textProjFilter') or ""
 	numProjFilter = session.retrieveValue(sessionId, 'numProjFilter') or ""
 	
+	currEngineSpec = session.retrieveValue(sessionId, 'engineSpec')
+	currDom = session.retrieveValue(sessionId, 'domain')
+	
+	#print("DDDDBBBBGGGG", currEngineSpec, currDom)
+	allowedSrcLangs, allowedTgtLangs = getDomLangs(currEngineSpec, currDom)
+	print(allowedSrcLangs, "--", allowedTgtLangs)
+	
 	res += """<p><input type="hidden" name="reqtyp" value="filter"/>
 		<input type="hidden" name="numProjFilter" value=""/>
 		<input type="text" id="textProjFilter" name="textProjFilter" value="{1}" size="90"
@@ -79,31 +125,39 @@ def _memsourceFiles(sessionId):
 		<input type="submit" value="Filtreeri" name="filterButton"/>
 		</p></form>""".format(numProjFilter, textProjFilter)
 	
-	projects = memsource.getProjects(token, name = textProjFilter, numflt = numProjFilter)
+	projects = memsource.getProjects(token, name = textProjFilter, numflt = numProjFilter, srcLangs = allowedSrcLangs, tgtLangs = allowedTgtLangs)
+	#print("DEBUUGGGGG", len(projects['content']))
 	
 	res += """<form action="/?s={0}" method="post"><input type="hidden" name="reqtyp" value="translate"/>""".format(sessionId)
 	
 	res += """<table border="0" width="800px">"""
 	
 	for p in sorted(projects['content'], key=lambda x: x['internalId']):
-		#res += "<p style=\"text-align:left;width:800px\"><b>Projekt: " + p['name'] + "</b></p>"
-		#print("PROJ LOG", p)
+		srcLang = p['sourceLang']
+		if srcLang in langDesc:
+			srcLang = langDesc[srcLang]
 		
-		#if owner == 'InterlexPM':
-		if True:
+		jobList = []
+		
+		if allowedTgtLangs:
+			for tgtLang in _langunion(allowedTgtLangs, p['targetLangs']):
+				fl = memsource.getProjJobs(token, p['uid'], urlext = '&targetLang=' + tgtLang)
+				jobList += fl['content']
+		else:
 			fl = memsource.getProjJobs(token, p['uid'])
+			jobList = fl['content']
+		
+		for f in jobList:
+			#print("JOB LOG", f)
+			inId = session.internalFileId(sessionId, p['uid'], f['uid'], [f, p])
 			
-			for f in fl['content']:
-				#print("JOB LOG", f)
-				inId = session.internalFileId(sessionId, p['uid'], f['uid'], [f, p])
-				
-				if not session.getFileBySKey(sessionId, inId)['mt']:
-					res += "<tr><td width=\"50px\"><input type=\"checkbox\" name=\"cb" + str(inId) + "\"/></td>"
-					tgtLang = f['targetLang']
-					if tgtLang in langDesc:	
-						tgtLang = langDesc[tgtLang]
-					res += "<td><b>" + str(p['internalId']) + "/" +  p['name'] + "</b>/" + f['filename'] + " (" + tgtLang + "&nbsp;keelde)</td>"
-					#res += "<td width=\"1\"><a href=\"/viewfile?s={0}&fk={1}\">(MXLF)</a></td>".format(sessionId, inId)
+			if not session.getFileBySKey(sessionId, inId)['mt']:
+				res += "<tr><td width=\"50px\"><input type=\"checkbox\" name=\"cb" + str(inId) + "\"/></td>"
+				tgtLang = f['targetLang']
+				if tgtLang in langDesc:	
+					tgtLang = langDesc[tgtLang]
+				res += "<td><b>" + str(p['internalId']) + "/" +  p['name'] + "</b>/" + f['filename'] + " (" + srcLang + "&rarr;" + tgtLang + ")</td>"
+				#res += "<td width=\"1\"><a href=\"/viewfile?s={0}&fk={1}\">(MXLF)</a></td>".format(sessionId, inId)
 	
 	res += """</table><input type="submit" value="Tõlgi" name="mtbutton"/></form>"""
 	

@@ -4,6 +4,7 @@ import simpleRender as render
 import session
 import memsource
 import neurotolge
+import enginespecs
 
 from flask import Flask, request
 
@@ -31,42 +32,6 @@ def appRoot():
 		except Exception as e:
 			print(e)
 			return "ERR"
-
-#@app.route('/list', methods=['POST'])
-#def appListProj():
-#	sessionId = int(request.args.get('s'))
-#	name = request.args.get('n')
-#	lang = request.args.get('l')
-#	
-#	try:
-#		uid = int(request.args.get('i'))
-#	except:
-#		uid = None
-#	
-#	token = session.getToken(sessionId)
-#	
-#	if uid:
-#		rawres = [ memsource.getProjectById(token, uid) ]
-#	else:
-#		rawRes = memsource.getProjects(token, name = name, targetLang = lang)
-#	
-#	#TODO put list in session
-#	
-#	#return list
-#	
-#@app.route('/prfiles', methods=['POST'])
-#def appProjFiles():
-#	sessionId = int(request.args.get('s'))
-#	projInId = int(request.args.get('p'))
-#	
-#	projId = session.getProjId(sessionId, projInId)
-#	token = session.getToken(sessionId)
-#	
-#	fileList = memsource.getProjJobs(token, projId)
-#	
-#	#TODO put list in session
-#	
-#	#return list
 
 @app.route('/viewfile', methods=['GET', 'POST'])
 def appViewFile():
@@ -97,20 +62,20 @@ def _login():
 	username = request.form['username']
 	password = request.form['password']
 	
-	try:
-		token = memsource.login(username, password)
-		sessId = session.new(token, username, password)
+	#try:
+	token = memsource.login(username, password)
+	sessId = session.new(token, username, password)
+	
+	engines = list(enginespecs.userExtraEngineAccess[username])
+	session.storeValue(sessId, 'translator', engines[0])
+	_reloadDomains(engines[0], sessId)
+	
+	return sessId
 		
-		
-		engines = list(neurotolge.userExtraEngineAccess[username])
-		session.storeValue(sessId, 'translator', engines[0])
-		
-		return sessId
-		
-	except Exception as e:
-		print("Exception", e)
-		
-		return False
+	#except Exception as e:
+	#	print("ExceptionXXX", e)
+	#	
+	#	return False
 
 def _currSession():
 	raws = request.args.get('s')
@@ -146,11 +111,28 @@ def _maybeStartTranslation(sessionId):
 				inid = int(k[2:])
 				neurotolge.translateFileOnBg(sessionId, inid)
 
+def _reloadDomains(engineId, sessionId):
+	spec = neurotolge.getEngineSpec(engineId)
+	domains = spec['domains'] if spec and 'domains' in spec else None
+	
+	session.storeValue(sessionId, 'engineSpec', spec)
+	
+	if domains:
+		session.storeValue(sessionId, 'domain', domains[0]['code'])
+	else:
+		session.storeValue(sessionId, 'domain', None)
+
 def _maybeStoreParams(sessionId):
 	if sessionId and 'reqtyp' in request.form and request.form['reqtyp'] == 'filter':
+		oldTr = session.retrieveValue(sessionId, 'translator')
+		
 		for k, v in request.form.items():
 			if k not in { 'reqtyp', 'filterButton' }:
 				session.storeValue(sessionId, k, v)
+		
+		newTr = session.retrieveValue(sessionId, 'translator')
+		if oldTr != newTr:
+			_reloadDomains(newTr, sessionId)
 
 ###################################
 ########### Start app #############
